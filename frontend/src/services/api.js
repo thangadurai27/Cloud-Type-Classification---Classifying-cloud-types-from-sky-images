@@ -3,23 +3,37 @@ import axios from 'axios';
 // API base URL - detect environment and use appropriate URL
 // Note: Create React App uses process.env, Vite uses import.meta.env
 const getApiBaseUrl = () => {
-  // Try different environment variable patterns
-  if (typeof process !== 'undefined' && process.env) {
-    return process.env.REACT_APP_API_URL || 'http://localhost:8000';
+  let baseUrl = 'http://localhost:8000'; // Default fallback
+  
+  // Try to get from environment variables
+  if (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_URL) {
+    baseUrl = process.env.REACT_APP_API_URL;
   }
-  // Fallback for different environments
-  return 'http://localhost:8000';
+  
+  // Clean up URL - remove trailing slashes, backslashes, or extra characters
+  baseUrl = baseUrl.replace(/[\/\\]+$/, '').trim();
+  
+  // Ensure it's a valid URL format
+  if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+    baseUrl = 'http://localhost:8000';
+  }
+  
+  return baseUrl;
 };
 
 const API_BASE_URL = getApiBaseUrl();
 
-console.log('API Base URL:', API_BASE_URL);
+console.log('🔗 API Base URL:', API_BASE_URL);
+console.log('🌍 Environment:', process.env.NODE_ENV);
 
-// Create axios instance with default config
+// Create axios instance with enhanced config
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000, // 30 seconds timeout for predictions
+  timeout: 45000, // 45 seconds timeout for predictions
   withCredentials: false, // Disable credentials for CORS
+  headers: {
+    'Content-Type': 'application/json',
+  }
 });
 
 // Add request interceptor for logging
@@ -87,35 +101,60 @@ export const predictCloudType = async (imageFile) => {
     const formData = new FormData();
     formData.append('file', imageFile);
 
-    console.log('Making prediction request to:', `${API_BASE_URL}/predict-cloud`);
+    console.log('🔄 Making prediction request to:', `${API_BASE_URL}/predict-cloud`);
+    console.log('📁 File details:', {
+      name: imageFile.name,
+      size: `${(imageFile.size / 1024).toFixed(2)} KB`,
+      type: imageFile.type
+    });
     
-    // Make API request with explicit URL and headers
-    const response = await axios.post(`${API_BASE_URL}/predict-cloud`, formData, {
+    // Make API request with enhanced configuration
+    const response = await api.post('/predict-cloud', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
-      timeout: 30000,
+      timeout: 60000, // Increased timeout for file upload
       withCredentials: false,
+      onUploadProgress: (progressEvent) => {
+        if (progressEvent.total) {
+          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          console.log(`📤 Upload progress: ${progress}%`);
+        }
+      }
     });
 
-    console.log('Prediction response:', response.data);
+    console.log('✅ Prediction response:', response.data);
 
-    // Validate response
-    if (!response.data) {
+    // Validate response structure
+    if (!response.data || !response.data.success) {
       throw new Error('Invalid response from server');
     }
 
-    const { cloud_type, confidence, processing_time } = response.data;
+    const { 
+      cloud_type, 
+      confidence, 
+      processing_time, 
+      description,
+      weather_significance,
+      altitude,
+      appearance 
+    } = response.data;
 
     if (!cloud_type || confidence === undefined) {
       throw new Error('Invalid prediction data received');
     }
 
     return {
+      success: true,
       cloudType: cloud_type,
       confidence: Math.round(confidence * 100), // Convert to percentage
       processingTime: processing_time || 0,
-      timestamp: new Date().toISOString()
+      description: description || '',
+      weatherSignificance: weather_significance || '',
+      altitude: altitude || '',
+      appearance: appearance || '',
+      timestamp: new Date().toISOString(),
+      filename: imageFile.name
     };
 
   } catch (error) {
@@ -170,16 +209,105 @@ export const getModelInfo = async () => {
 };
 
 /**
- * Health check endpoint
+ * Health check endpoint with enhanced connection testing
  * @returns {Promise<Object>} Server health status
  */
 export const healthCheck = async () => {
   try {
-    const response = await api.get('/health');
-    return response.data;
+    console.log('🔍 Testing connection to:', `${API_BASE_URL}/health`);
+    
+    const response = await api.get('/health', {
+      timeout: 15000, // 15 seconds timeout for health check
+    });
+    
+    console.log('💚 Health check successful:', response.data);
+    return {
+      success: true,
+      data: response.data,
+      url: `${API_BASE_URL}/health`
+    };
   } catch (error) {
-    console.error('Health check error:', error);
-    throw error;
+    console.error('❌ Health check failed:', error);
+    
+    let errorMessage = 'Connection test failed. ';
+    
+    if (error.code === 'ECONNABORTED') {
+      errorMessage += 'Server is taking too long to respond. It might be starting up.';
+    } else if (error.response) {
+      errorMessage += `Server responded with status ${error.response.status}.`;
+    } else if (error.request) {
+      errorMessage += 'Cannot reach the server. Please check if the backend is running.';
+    } else {
+      errorMessage += error.message;
+    }
+    
+    return {
+      success: false,
+      error: errorMessage,
+      url: `${API_BASE_URL}/health`
+    };
+  }
+};
+
+/**
+ * Test backend connection with detailed diagnostics
+ * @returns {Promise<Object>} Connection test results
+ */
+export const testBackendConnection = async () => {
+  console.log('🧪 Running comprehensive backend connection test...');
+  console.log('🌐 API Base URL:', API_BASE_URL);
+  console.log('🔧 Environment:', process.env.NODE_ENV);
+  
+  try {
+    // First, try a simple ping
+    const pingResponse = await api.get('/ping', { timeout: 10000 });
+    console.log('📡 Ping successful:', pingResponse.data);
+    
+    // Then try the health check
+    const healthResponse = await healthCheck();
+    
+    return {
+      success: true,
+      message: 'Backend connection successful!',
+      details: {
+        ping: pingResponse.data,
+        health: healthResponse.data,
+        url: API_BASE_URL
+      }
+    };
+  } catch (error) {
+    console.error('🚨 Connection test failed:', error);
+    
+    // Try just the health endpoint as fallback
+    try {
+      const healthResponse = await healthCheck();
+      if (healthResponse.success) {
+        return {
+          success: true,
+          message: 'Backend connection successful (health check only)!',
+          details: {
+            health: healthResponse.data,
+            url: API_BASE_URL,
+            note: 'Ping endpoint not available, but health check works'
+          }
+        };
+      }
+    } catch (healthError) {
+      console.error('🚨 Health check also failed:', healthError);
+    }
+    
+    return {
+      success: false,
+      message: 'Backend connection failed',
+      error: error.message || 'Unknown error occurred',
+      url: API_BASE_URL,
+      suggestions: [
+        'Check if the backend server is running',
+        'Verify the API URL is correct',
+        'Wait a moment if using free hosting (server might be sleeping)',
+        'Check your internet connection'
+      ]
+    };
   }
 };
 

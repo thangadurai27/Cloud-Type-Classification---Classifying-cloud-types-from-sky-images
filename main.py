@@ -9,49 +9,125 @@ from fastapi.responses import JSONResponse
 import uvicorn
 import random
 import time
+import asyncio
+import os
 from typing import Dict, Any
 
 # Initialize FastAPI app
 app = FastAPI(
     title="Cloud Classification API",
-    description="API for classifying cloud types from images",
-    version="1.0.0"
+    description="AI-powered cloud type classification system",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
 )
 
-# Configure CORS
+# Configure CORS for production
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",  # React development server
+        "http://localhost:3000",  # Local development
         "http://127.0.0.1:3000",
-        "http://localhost:5173",  # Vite development server
-        "http://127.0.0.1:5173"
+        "https://cloud-type-classification-classifyi-tan.vercel.app",  # Your Vercel domain
+        "https://*.vercel.app",  # All Vercel domains
+        "*"  # Allow all origins for initial testing - restrict in production
     ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "OPTIONS", "PUT", "DELETE"],
     allow_headers=["*"],
 )
 
-# Cloud types from the dataset
+# Cloud types from the dataset with comprehensive information
 CLOUD_TYPES = [
-    "Altocumulus", "Altostratus", "Cirrocumulus", "Cirrostratus", "Cirrus",
-    "Cumulonimbus", "Cumulus", "Nimbostratus", "Stratocumulus", "Stratus", "Contrail"
+    {
+        "name": "Cumulonimbus",
+        "abbreviation": "Cb",
+        "description": "Towering storm clouds that can reach extreme heights",
+        "weather_significance": "Indicates thunderstorms, heavy rain, hail, and severe weather",
+        "altitude": "Surface to 60,000+ ft",
+        "appearance": "Towering, anvil-shaped top, dark base"
+    },
+    {
+        "name": "Cumulus",
+        "abbreviation": "Cu",
+        "description": "Puffy, cotton-like clouds with flat bases and rounded tops",
+        "weather_significance": "Fair weather indicator, pleasant conditions",
+        "altitude": "1,600-6,500 ft",
+        "appearance": "Fluffy, white, well-defined edges"
+    },
+    {
+        "name": "Stratus",
+        "abbreviation": "St",
+        "description": "Low, gray clouds that often cover the entire sky like a blanket",
+        "weather_significance": "Overcast conditions, possible light rain or drizzle",
+        "altitude": "0-2,000 ft",
+        "appearance": "Uniform gray layer, featureless"
+    },
+    {
+        "name": "Cirrus",
+        "abbreviation": "Ci",
+        "description": "Thin, wispy high clouds made of ice crystals",
+        "weather_significance": "Fair weather, but may indicate weather change in 24-48 hours",
+        "altitude": "20,000-45,000 ft",
+        "appearance": "Feathery, hair-like, translucent"
+    },
+    {
+        "name": "Altocumulus",
+        "abbreviation": "Ac",
+        "description": "Mid-level clouds with gray or white patches, often in waves or bands",
+        "weather_significance": "May indicate thunderstorms developing later in the day",
+        "altitude": "6,500-20,000 ft",
+        "appearance": "Gray/white patches or layers, wave-like patterns"
+    },
+    {
+        "name": "Altostratus",
+        "abbreviation": "As",
+        "description": "Mid-level gray or blue-gray sheets that often cover the entire sky",
+        "weather_significance": "Rain or snow likely within 24 hours",
+        "altitude": "6,500-20,000 ft",
+        "appearance": "Gray/blue sheet, sun dimly visible"
+    },
+    {
+        "name": "Stratocumulus",
+        "abbreviation": "Sc",
+        "description": "Low, lumpy gray or white patches arranged in rows or groups",
+        "weather_significance": "Usually dry, but may produce light rain",
+        "altitude": "0-6,500 ft",
+        "appearance": "Low rolls or patches, gray/white with darker areas"
+    },
+    {
+        "name": "Nimbostratus",
+        "abbreviation": "Ns",
+        "description": "Dark, thick clouds that produce steady rain or snow",
+        "weather_significance": "Continuous precipitation expected",
+        "altitude": "0-10,000 ft",
+        "appearance": "Dark gray, thick layer, precipitation falling"
+    },
+    {
+        "name": "Cirrostratus",
+        "abbreviation": "Cs",
+        "description": "Thin, sheet-like high clouds that often cover the entire sky",
+        "weather_significance": "Weather change approaching within 24 hours",
+        "altitude": "20,000-45,000 ft",
+        "appearance": "Thin white sheet, creates halo around sun/moon"
+    },
+    {
+        "name": "Cirrocumulus",
+        "abbreviation": "Cc",
+        "description": "High, thin clouds arranged in rows of small white patches",
+        "weather_significance": "Fair weather, but may indicate approaching weather change",
+        "altitude": "20,000-45,000 ft",
+        "appearance": "Small white patches in rows, 'mackerel sky'"
+    },
+    {
+        "name": "Contrail",
+        "abbreviation": "Ct",
+        "description": "Man-made clouds formed by aircraft exhaust in the atmosphere",
+        "weather_significance": "Indicates atmospheric conditions, not natural weather predictor",
+        "altitude": "26,000-40,000 ft",
+        "appearance": "Linear white trails behind aircraft"
+    }
 ]
-
-# Cloud descriptions for mock responses
-CLOUD_DESCRIPTIONS = {
-    "Altocumulus": "Mid-level clouds with gray or white patches, often in waves or bands",
-    "Altostratus": "Mid-level gray or blue-gray sheets that often cover the entire sky",
-    "Cirrocumulus": "High, thin clouds arranged in rows of small white patches",
-    "Cirrostratus": "Thin, sheet-like high clouds that often cover the entire sky",
-    "Cirrus": "Thin, wispy high clouds made of ice crystals",
-    "Cumulonimbus": "Towering clouds that produce thunderstorms and severe weather",
-    "Cumulus": "Puffy, cotton-like clouds with flat bases and rounded tops",
-    "Nimbostratus": "Dark, thick clouds that produce steady rain or snow",
-    "Stratocumulus": "Low, lumpy gray or white patches arranged in rows or groups",
-    "Stratus": "Low, gray clouds that often cover the entire sky like a blanket",
-    "Contrail": "Man-made clouds formed by aircraft exhaust in the atmosphere"
-}
 
 @app.get("/")
 async def root():
@@ -67,12 +143,27 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """Comprehensive health check endpoint"""
     return {
         "status": "healthy",
         "message": "Cloud Classification API is running",
-        "timestamp": time.time()
+        "timestamp": int(time.time()),
+        "version": "1.0.0",
+        "uptime": "active",
+        "endpoints": {
+            "health": "/health",
+            "predict": "/predict-cloud",
+            "docs": "/docs",
+            "ping": "/ping"
+        },
+        "supported_formats": ["jpeg", "jpg", "png", "gif", "webp"],
+        "max_file_size": "10MB"
     }
+
+@app.get("/ping")
+async def ping():
+    """Simple ping endpoint for monitoring"""
+    return {"ping": "pong", "timestamp": int(time.time())}
 
 @app.post("/predict-cloud")
 async def predict_cloud_type(file: UploadFile = File(...)) -> Dict[str, Any]:
@@ -87,10 +178,10 @@ async def predict_cloud_type(file: UploadFile = File(...)) -> Dict[str, Any]:
     """
     try:
         # Validate file type
-        if not file.content_type.startswith('image/'):
+        if not file.content_type or not file.content_type.startswith('image/'):
             raise HTTPException(
                 status_code=400,
-                detail="File must be an image (jpeg, png, gif, etc.)"
+                detail="File must be an image (jpeg, png, gif, webp, etc.)"
             )
         
         # Read file content (in real implementation, this would go to ML model)
@@ -100,6 +191,13 @@ async def predict_cloud_type(file: UploadFile = File(...)) -> Dict[str, Any]:
             raise HTTPException(
                 status_code=400,
                 detail="Uploaded file is empty"
+            )
+            
+        # Check file size (limit to 10MB)
+        if len(contents) > 10 * 1024 * 1024:
+            raise HTTPException(
+                status_code=400,
+                detail="File too large. Maximum size is 10MB"
             )
         
         # Simulate processing time
@@ -111,21 +209,26 @@ async def predict_cloud_type(file: UploadFile = File(...)) -> Dict[str, Any]:
         predicted_cloud = random.choice(CLOUD_TYPES)
         confidence = round(random.uniform(0.75, 0.98), 3)
         
-        # Create response
+        # Create comprehensive response
         response = {
             "success": True,
-            "cloud_type": predicted_cloud,
+            "cloud_type": predicted_cloud["name"],
+            "abbreviation": predicted_cloud["abbreviation"],
             "confidence": confidence,
-            "description": CLOUD_DESCRIPTIONS[predicted_cloud],
+            "description": predicted_cloud["description"],
+            "weather_significance": predicted_cloud["weather_significance"],
+            "altitude": predicted_cloud["altitude"],
+            "appearance": predicted_cloud["appearance"],
             "processing_time": round(processing_time, 3),
             "file_info": {
                 "filename": file.filename,
                 "content_type": file.content_type,
-                "size_bytes": len(contents)
+                "size_kb": round(len(contents) / 1024, 2)
             },
             "metadata": {
                 "model_version": "1.0.0",
-                "timestamp": time.time()
+                "timestamp": int(time.time()),
+                "api_version": "2024-11-20"
             }
         }
         
@@ -171,16 +274,18 @@ import asyncio
 
 if __name__ == "__main__":
     print("🌤️  Starting Cloud Classification API...")
-    print("📡 Frontend CORS enabled for: http://localhost:3000")
+    print("📡 CORS enabled for Vercel and localhost")
     print("🔗 API will be available at: http://localhost:8000")
     print("💚 Health check: http://localhost:8000/health")
     print("📤 Upload endpoint: http://localhost:8000/predict-cloud")
+    print("📚 API docs: http://localhost:8000/docs")
     print()
     
+    port = int(os.environ.get("PORT", 8000))
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
-        reload=True,
+        port=port,
+        reload=False,  # Set to False for production
         log_level="info"
     )
