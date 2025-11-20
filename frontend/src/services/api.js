@@ -3,11 +3,17 @@ import axios from 'axios';
 // API base URL - detect environment and use appropriate URL
 // Note: Create React App uses process.env, Vite uses import.meta.env
 const getApiBaseUrl = () => {
-  let baseUrl = 'http://localhost:8000'; // Default fallback
+  // Default to production URL for deployed app
+  let baseUrl = 'https://cloud-type-classification-classifying.onrender.com';
   
   // Try to get from environment variables
-  if (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_URL) {
-    baseUrl = process.env.REACT_APP_API_URL;
+  if (typeof process !== 'undefined' && process.env) {
+    if (process.env.REACT_APP_API_URL) {
+      baseUrl = process.env.REACT_APP_API_URL;
+    } else if (process.env.NODE_ENV === 'development' && !process.env.REACT_APP_API_URL) {
+      // Only use localhost in development if no env var is set
+      baseUrl = 'http://localhost:8000';
+    }
   }
   
   // Clean up URL - remove trailing slashes, backslashes, or extra characters
@@ -15,8 +21,14 @@ const getApiBaseUrl = () => {
   
   // Ensure it's a valid URL format
   if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
-    baseUrl = 'http://localhost:8000';
+    baseUrl = 'https://cloud-type-classification-classifying.onrender.com';
   }
+  
+  console.log('🔧 Environment detection:', {
+    NODE_ENV: process.env.NODE_ENV,
+    REACT_APP_API_URL: process.env.REACT_APP_API_URL,
+    finalUrl: baseUrl
+  });
   
   return baseUrl;
 };
@@ -201,7 +213,11 @@ export const predictCloudType = async (imageFile) => {
     } else if (error.code === 'ERR_NETWORK' || error.message.includes('Network Error')) {
       errorMessage = 'Network error - Please check your internet connection and try again.';
     } else if (error.code === 'ERR_CONNECTION_REFUSED') {
-      errorMessage = `Unable to connect to server at ${API_BASE_URL}. The server might be starting up - please wait a moment and try again.`;
+      if (API_BASE_URL.includes('localhost')) {
+        errorMessage = `Cannot connect to localhost:8000. Make sure you're using the correct backend URL. For the deployed version, this should be the Render URL.`;
+      } else {
+        errorMessage = `Unable to connect to server at ${API_BASE_URL}. The server might be starting up - please wait a moment and try again.`;
+      }
     } else if (error.response) {
       // Server responded with error status
       const status = error.response.status;
