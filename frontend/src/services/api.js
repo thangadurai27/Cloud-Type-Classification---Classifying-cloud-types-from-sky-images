@@ -74,27 +74,44 @@ api.interceptors.response.use(
 );
 
 /**
- * Predict cloud type from uploaded image
+ * Predict cloud type from uploaded image with comprehensive error handling
  * @param {File} imageFile - The image file to classify
  * @returns {Promise<Object>} Prediction result with cloud type and confidence
  */
 export const predictCloudType = async (imageFile) => {
   try {
+    console.log('🚀 Starting cloud type prediction...');
+    
     // Validate file
     if (!imageFile) {
       throw new Error('No image file provided');
     }
 
-    // Check file type
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
-    if (!allowedTypes.includes(imageFile.type)) {
-      throw new Error('Invalid file type. Please upload a JPG, PNG, or GIF image.');
+    console.log('📁 File details:', {
+      name: imageFile.name,
+      size: `${(imageFile.size / 1024).toFixed(2)} KB`,
+      type: imageFile.type,
+      lastModified: new Date(imageFile.lastModified).toISOString()
+    });
+
+    // Check file type - be more permissive
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/bmp', 'image/webp'];
+    const hasValidType = allowedTypes.includes(imageFile.type) || 
+                        imageFile.type.startsWith('image/') ||
+                        imageFile.name.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i);
+    
+    if (!hasValidType) {
+      throw new Error(`Invalid file type: ${imageFile.type}. Please upload a valid image file (JPG, PNG, GIF, etc.)`);
     }
 
     // Check file size (10MB limit)
     const maxSize = 10 * 1024 * 1024; // 10MB
     if (imageFile.size > maxSize) {
-      throw new Error('File too large. Please upload an image smaller than 10MB.');
+      throw new Error(`File too large: ${(imageFile.size / 1024 / 1024).toFixed(1)}MB. Maximum size is 10MB.`);
+    }
+
+    if (imageFile.size === 0) {
+      throw new Error('File is empty. Please select a valid image file.');
     }
 
     // Create FormData
@@ -102,32 +119,33 @@ export const predictCloudType = async (imageFile) => {
     formData.append('file', imageFile);
 
     console.log('🔄 Making prediction request to:', `${API_BASE_URL}/predict-cloud`);
-    console.log('📁 File details:', {
-      name: imageFile.name,
-      size: `${(imageFile.size / 1024).toFixed(2)} KB`,
-      type: imageFile.type
-    });
+    console.log('📤 FormData created with file:', imageFile.name);
     
     // Make API request with enhanced configuration
     const response = await api.post('/predict-cloud', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
-      timeout: 60000, // Increased timeout for file upload
+      timeout: 90000, // 90 seconds for file upload
       withCredentials: false,
       onUploadProgress: (progressEvent) => {
         if (progressEvent.total) {
           const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          console.log(`📤 Upload progress: ${progress}%`);
+          console.log(`📈 Upload progress: ${progress}%`);
         }
       }
     });
 
-    console.log('✅ Prediction response:', response.data);
+    console.log('✅ Raw API response:', response);
+    console.log('📊 Response data:', response.data);
 
     // Validate response structure
-    if (!response.data || !response.data.success) {
-      throw new Error('Invalid response from server');
+    if (!response.data) {
+      throw new Error('No data received from server');
+    }
+
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Server returned unsuccessful response');
     }
 
     const { 
@@ -137,16 +155,22 @@ export const predictCloudType = async (imageFile) => {
       description,
       weather_significance,
       altitude,
-      appearance 
+      appearance,
+      abbreviation,
+      file_info,
+      metadata
     } = response.data;
 
     if (!cloud_type || confidence === undefined) {
-      throw new Error('Invalid prediction data received');
+      throw new Error('Invalid prediction data received - missing cloud_type or confidence');
     }
+
+    console.log(`🎯 Prediction successful: ${cloud_type} (${(confidence * 100).toFixed(1)}% confidence)`);
 
     return {
       success: true,
       cloudType: cloud_type,
+      abbreviation: abbreviation || '',
       confidence: Math.round(confidence * 100), // Convert to percentage
       processingTime: processing_time || 0,
       description: description || '',
@@ -154,43 +178,65 @@ export const predictCloudType = async (imageFile) => {
       altitude: altitude || '',
       appearance: appearance || '',
       timestamp: new Date().toISOString(),
-      filename: imageFile.name
+      filename: imageFile.name,
+      fileInfo: file_info || {},
+      metadata: metadata || {}
     };
 
   } catch (error) {
-    console.error('Prediction error:', error);
+    console.error('❌ Prediction error:', error);
+    console.error('🔍 Error details:', {
+      message: error.message,
+      code: error.code,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data
+    });
     
-    // Enhanced error handling for different types of errors
+    let errorMessage = 'Failed to classify cloud image. ';
+    
+    // Handle different types of errors
     if (error.code === 'ECONNABORTED') {
-      throw new Error('Request timeout. The server took too long to respond.');
-    }
-    
-    if (error.code === 'ERR_NETWORK' || error.message.includes('Network Error')) {
-      throw new Error('Network error. Please check your internet connection.');
-    }
-    
-    if (error.code === 'ERR_CONNECTION_REFUSED') {
-      throw new Error('Unable to connect to server. Please ensure the backend is running on ' + API_BASE_URL);
-    }
-    
-    if (error.response) {
+      errorMessage = 'Request timeout - The server took too long to respond. This may happen when the server is sleeping (free hosting). Please try again.';
+    } else if (error.code === 'ERR_NETWORK' || error.message.includes('Network Error')) {
+      errorMessage = 'Network error - Please check your internet connection and try again.';
+    } else if (error.code === 'ERR_CONNECTION_REFUSED') {
+      errorMessage = `Unable to connect to server at ${API_BASE_URL}. The server might be starting up - please wait a moment and try again.`;
+    } else if (error.response) {
       // Server responded with error status
       const status = error.response.status;
-      const message = error.response.data?.message || error.response.data?.detail || 'Server error occurred';
+      const serverMessage = error.response.data?.detail || error.response.data?.message || error.response.data?.error;
       
-      if (status === 404) {
-        throw new Error('API endpoint not found. Please check if the backend server is properly configured.');
+      if (status === 400) {
+        errorMessage = serverMessage || 'Invalid file or request. Please check your image file and try again.';
+      } else if (status === 404) {
+        errorMessage = 'API endpoint not found. Please check if the backend server is properly configured.';
+      } else if (status === 413) {
+        errorMessage = 'File too large. Please use an image smaller than 10MB.';
       } else if (status === 422) {
-        throw new Error('Invalid file format or size. ' + message);
+        errorMessage = 'Invalid file format or data. ' + (serverMessage || 'Please try a different image.');
       } else if (status >= 500) {
-        throw new Error('Server error: ' + message);
+        errorMessage = 'Server error occurred. ' + (serverMessage || 'Please try again later.');
       } else {
-        throw new Error(`Error ${status}: ${message}`);
+        errorMessage = `Server error (${status}): ${serverMessage || 'Please try again.'}`;
       }
+    } else if (error.message) {
+      // Custom error message (from our validation)
+      errorMessage = error.message;
     }
     
-    // Re-throw the original error if it's already a custom error
-    throw error;
+    console.error('🚨 Final error message:', errorMessage);
+    
+    return {
+      success: false,
+      error: errorMessage,
+      details: {
+        originalError: error.message,
+        code: error.code,
+        status: error.response?.status,
+        url: `${API_BASE_URL}/predict-cloud`
+      }
+    };
   }
 };
 

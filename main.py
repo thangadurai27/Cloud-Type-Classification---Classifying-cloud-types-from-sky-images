@@ -168,7 +168,7 @@ async def ping():
 @app.post("/predict-cloud")
 async def predict_cloud_type(file: UploadFile = File(...)) -> Dict[str, Any]:
     """
-    Predict cloud type from uploaded image
+    Predict cloud type from uploaded image with enhanced error handling
     
     Args:
         file: Uploaded image file
@@ -177,37 +177,81 @@ async def predict_cloud_type(file: UploadFile = File(...)) -> Dict[str, Any]:
         Dictionary with prediction results
     """
     try:
-        # Validate file type
-        if not file.content_type or not file.content_type.startswith('image/'):
+        # Log incoming request for debugging
+        print(f"📤 Received file upload: {file.filename}")
+        print(f"📋 Content-Type: {file.content_type}")
+        print(f"📊 File object type: {type(file)}")
+        
+        # Check if file was actually uploaded
+        if not file or not file.filename:
+            print("❌ No file uploaded")
             raise HTTPException(
                 status_code=400,
-                detail="File must be an image (jpeg, png, gif, webp, etc.)"
+                detail="No file uploaded. Please select an image file."
             )
         
-        # Read file content (in real implementation, this would go to ML model)
-        contents = await file.read()
-        
-        if len(contents) == 0:
+        # Read file content first to get size
+        try:
+            contents = await file.read()
+            file_size = len(contents)
+            print(f"📁 File size: {file_size} bytes ({file_size/1024:.1f} KB)")
+        except Exception as read_error:
+            print(f"❌ Error reading file: {str(read_error)}")
             raise HTTPException(
                 status_code=400,
-                detail="Uploaded file is empty"
+                detail=f"Error reading uploaded file: {str(read_error)}"
+            )
+        
+        # Check if file is empty
+        if file_size == 0:
+            print("❌ Empty file uploaded")
+            raise HTTPException(
+                status_code=400,
+                detail="Uploaded file is empty. Please select a valid image file."
             )
             
         # Check file size (limit to 10MB)
-        if len(contents) > 10 * 1024 * 1024:
+        if file_size > 10 * 1024 * 1024:
+            print(f"❌ File too large: {file_size/1024/1024:.1f}MB")
             raise HTTPException(
                 status_code=400,
-                detail="File too large. Maximum size is 10MB"
+                detail=f"File too large: {file_size/1024/1024:.1f}MB. Maximum size is 10MB."
+            )
+        
+        # Validate file type - be more flexible with content-type checking
+        is_valid_image = False
+        
+        # Check content type if available
+        if file.content_type and file.content_type.startswith('image/'):
+            is_valid_image = True
+            print(f"✅ Valid content-type: {file.content_type}")
+        
+        # Check file extension as fallback
+        if not is_valid_image and file.filename:
+            valid_extensions = ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp')
+            if file.filename.lower().endswith(valid_extensions):
+                is_valid_image = True
+                print(f"✅ Valid file extension: {file.filename}")
+        
+        if not is_valid_image:
+            print(f"❌ Invalid file type: {file.content_type}, filename: {file.filename}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid file type. Please upload an image file (JPG, PNG, GIF, etc.). Received: {file.content_type}"
             )
         
         # Simulate processing time
+        print("🔄 Processing image...")
         processing_start = time.time()
         await simulate_processing()
         processing_time = time.time() - processing_start
+        print(f"⏱️ Processing completed in {processing_time:.2f} seconds")
         
         # Generate mock prediction (replace with real ML model)
         predicted_cloud = random.choice(CLOUD_TYPES)
         confidence = round(random.uniform(0.75, 0.98), 3)
+        
+        print(f"🎯 Prediction: {predicted_cloud['name']} ({confidence*100:.1f}% confidence)")
         
         # Create comprehensive response
         response = {
@@ -222,30 +266,46 @@ async def predict_cloud_type(file: UploadFile = File(...)) -> Dict[str, Any]:
             "processing_time": round(processing_time, 3),
             "file_info": {
                 "filename": file.filename,
-                "content_type": file.content_type,
-                "size_kb": round(len(contents) / 1024, 2)
+                "content_type": file.content_type or "unknown",
+                "size_kb": round(file_size / 1024, 2),
+                "size_bytes": file_size
             },
             "metadata": {
                 "model_version": "1.0.0",
                 "timestamp": int(time.time()),
-                "api_version": "2024-11-20"
+                "api_version": "2024-11-20",
+                "server_status": "active"
             }
         }
         
+        print("✅ Response created successfully")
         return response
         
-    except HTTPException:
-        raise
+    except HTTPException as he:
+        print(f"❌ HTTP Exception: {he.status_code} - {he.detail}")
+        raise he
     except Exception as e:
+        print(f"💥 Unexpected error: {str(e)}")
+        print(f"🔍 Error type: {type(e).__name__}")
+        import traceback
+        print(f"📜 Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=500,
-            detail=f"Internal server error: {str(e)}"
+            detail=f"Internal server error during prediction: {str(e)}"
         )
 
 async def simulate_processing():
-    """Simulate ML model processing time"""
-    # Simulate realistic processing time (0.5-3 seconds)
-    await asyncio.sleep(random.uniform(0.5, 3.0))
+    """Simulate ML model processing time with realistic delay"""
+    try:
+        # Simulate realistic processing time (0.5-2 seconds for demo)
+        processing_time = random.uniform(0.5, 2.0)
+        print(f"⏳ Simulating processing for {processing_time:.1f} seconds...")
+        await asyncio.sleep(processing_time)
+        print("✅ Processing simulation completed")
+    except Exception as e:
+        print(f"⚠️ Error in processing simulation: {str(e)}")
+        # Don't fail the whole request if simulation fails
+        pass
 
 # Error handlers
 @app.exception_handler(404)
