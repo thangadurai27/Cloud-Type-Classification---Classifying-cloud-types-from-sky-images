@@ -17,14 +17,14 @@ const Footer = () => {
             </p>
           </div>
 
-          {/* Links */}
+          {/* Resources & Links */}
           <div className="text-center">
             <h3 className="text-lg font-semibold text-cloud-800 dark:text-cloud-200 mb-2">
-              Resources
+              Resources & Links
             </h3>
             <div className="flex justify-center space-x-4">
               <motion.a
-                href="https://github.com/yourusername/cloud-classification"
+                href="https://github.com/thangadurai27/Cloud-Type-Classification---Classifying-cloud-types-from-sky-images"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center space-x-1 text-cloud-600 dark:text-cloud-400 hover:text-sky-600 dark:hover:text-sky-400 transition-colors"
@@ -48,20 +48,13 @@ const Footer = () => {
             </div>
           </div>
 
-          {/* Attribution */}
+          {/* Copyright */}
           <div className="text-center md:text-right">
-            <div className="flex items-center justify-center md:justify-end space-x-1 text-cloud-600 dark:text-cloud-400 text-sm">
-              <span>Made with</span>
-              <motion.div
-                animate={{ scale: [1, 1.2, 1] }}
-                transition={{ repeat: Infinity, duration: 1.5 }}
-              >
-                <Heart className="h-4 w-4 text-red-500" />
-              </motion.div>
-              <span>for Cloud Classification Project</span>
-            </div>
-            <p className="text-xs text-cloud-500 dark:text-cloud-500 mt-1">
+            <p className="text-xs text-cloud-500 dark:text-cloud-500">
               © 2025 Cloud Type Classification. All rights reserved.
+            </p>
+            <p className="text-xs text-cloud-500 dark:text-cloud-500 mt-1">
+              AI-powered meteorological analysis
             </p>
           </div>
         </div>
